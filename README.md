@@ -11,4 +11,6 @@ Second, some of the model parameters are optimised on data from the UK, with a p
 
 The parameter optimisation is first tested on a smaller data set obtained from Tanner et al. (2012, Eur J Clin Microbiol Infect Dis) that was collected at the Public Health England Laboratory in Birmingham. After this, the code is used to optimise the parameters on a larger data set from Public Health England.
 
-
+Data files:
+Model: This code is for the compartmental model alone with defined parameters.
+Model optimisation (Tanner et al): This code is for the optimisation of the model parameters on the data by Tanner et al.
