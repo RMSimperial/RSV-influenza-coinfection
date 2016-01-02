@@ -95,7 +95,7 @@ vR0_1 = numeric(0)					# Basic reproductive number for IF
 vepsilon_1 = numeric(0)				# Amplitude of seasonality of IF
 vt0_1 = numeric(0)					# Start of the epidemic of IF
 vpois_negloglike = numeric(0)		# Negative Poisson log likelihood (statistic for the optimisation)
-niter = 1000						# Number of iterations for the parameter optimisation
+niter = 500						# Number of iterations for the parameter optimisation
 
 # Define the intial 'best guesses' for the IF parameters that are optimised
 R0_1_old <- 1.3	
@@ -117,7 +117,9 @@ for (iter in 1:niter){				# Start of the loop
 	while(t0_1>=max(data$time)) t0_1 = as.integer(rnorm(1,t0_1_old,sigma_t0_1))
 	
 	beta_01 <- R0_1 * (gamma_1 + mu)	# Rate at which susceptible individuals are exposed for IF
-
+	
+	if(t0_1>1){t0_1 <- 1}
+	
 	vt_1 <- seq(t0_1, 32, by = 1) 		
 	
 	vparameters <- c(nu=nu, mu=mu, R0_1=R0_1, R0_2=R0_2, sigma_1=sigma_1, sigma_2=sigma_2, sigma_12=sigma_12,
@@ -198,10 +200,8 @@ write.table(vdat_1,"MCMC_IF_optimisation_RSV-IF-Co-infection.csv",row.names=F)
 rm(R0_2)
 rm(epsilon_2)
 rm(pois_negloglike)
-rm(data)
 
-## Load the data table
-data = read.table("Tanner et al 2012 data IF-RSV-Co.csv",header=TRUE,sep=",")
+## Load the data 
 RSV_data = data$RSV_data
 
 ## The IF parameters optimised in the previous step are updated
@@ -217,7 +217,7 @@ vR0_2 = numeric(0)					# Basic reproductive number for RSV
 vepsilon_2 = numeric(0)				# Amplitude of seasonality of RSV
 vt0_2 = numeric(0)					# Start of the epidemic of RSV
 vpois_negloglike = numeric(0)		# Negative Poisson log likelihood (statistic for the optimisation)
-niter = 1000						# Number of iterations for the parameter optimisation
+niter = 500						# Number of iterations for the parameter optimisation
 
 # These are the intial 'best guesses' for RSV parameters that are optimised
 R0_2_old <- 1.7							
@@ -237,6 +237,9 @@ for (iter in 1:niter){				# Start of the loop
 	while(R0_2<1)      R0_2      = rnorm(1,R0_2_old,sigma_R0_2)
 	while(epsilon_2<0) epsilon_2 = rnorm(1,epsilon_2_old,sigma_epsilon_2)
 	while(t0_2>=max(data$time)) t0_2 = as.integer(rnorm(1,t0_2_old,sigma_t0_2))
+	
+	if(t0_2>1){t0_2 <- 1}
+
 	
 	vt_2 <- seq(t0_2, 32, by = 1) 		
 	
@@ -319,13 +322,11 @@ write.table(vdat_2,"MCMC_RSV_optimisation_RSV-IF-Co-infection.csv",row.names=F)
 
 ## Remove stuff from the previous optimisation
 rm(pois_negloglike)
-rm(data)
 rm(beta_02E1o) 		
 rm(beta_01Eo2) 		
 rm(beta_012) 	
 
-## Load the data table
-data = read.table("Tanner et al 2012 data IF-RSV-Co.csv",header=TRUE,sep=",")
+## Load the data 
 Co_data = data$Co_data
 
 ## The IF parameters optimised in the previous step are updated
@@ -342,31 +343,33 @@ vbeta_01Eo2 = numeric(0) 			# Rate at which susceptible individuals already expo
 vbeta_012 	= numeric(0) 			# Rate at which fully susceptible individuals become exposed to co-inf 
 vt0_12 = numeric(0)					# Start of the epidemic of RSV
 vpois_negloglike = numeric(0)		# Negative Poisson log likelihood (statistic for the optimisation)
-niter = 1000						# Number of iterations for the parameter optimisation
+niter = 500						# Number of iterations for the parameter optimisation
 
 # These are the intial 'best guesses' for co-inf parameters that are optimised
-beta_02E1o_old <- 1.776414				
-beta_01Eo2_old <- 9.100225	
-beta_012_old <-	0.1776414	
-t0_12_old <- 0 		
+beta_02E1o_old <- 0.1776414				
+beta_01Eo2_old <- 0.9100225	
+beta_012_old <-	1.776414	
+t0_12_old <- 10 		
 
 # Define the sampling widths; these are kept wide for initial runs of the optimisation 
-sigma_beta_02E1o = 1					
-sigma_beta_01Eo2 = 1	
-sigma_beta_012 = 1
+sigma_beta_02E1o = 3					
+sigma_beta_01Eo2 = 3	
+sigma_beta_012 = 3
 sigma_t0_12 = 3
 
 for (iter in 1:niter){				# Start of the loop
 	beta_02E1o <- 0.9				
 	beta_01Eo2 <- 0.9	
-	beta_012 <-	0.05
+	beta_012 <-	0.9
 	t0_12 <- max(data$time)+1
 
-	while(beta_02E1o<1)      beta_02E1o		= rnorm(1,beta_02E1o_old,sigma_beta_02E1o)
-	while(beta_01Eo2<1)      beta_01Eo2		= rnorm(1,beta_01Eo2_old,sigma_beta_01Eo2)
-	while(beta_012<0.1)      beta_012			= rnorm(1,beta_012_old,sigma_beta_012)
+	while(beta_02E1o<1)		beta_02E1o		= rnorm(1,beta_02E1o_old,sigma_beta_02E1o)
+	while(beta_01Eo2<1)		beta_01Eo2		= rnorm(1,beta_01Eo2_old,sigma_beta_01Eo2)
+	while(beta_012<1)		beta_012		= rnorm(1,beta_012_old,sigma_beta_012)
 	while(t0_12>=max(data$time)) t0_12		= as.integer(rnorm(1,t0_12_old,sigma_t0_12))
 	
+	if(t0_12>1){t0_12 <- 1}
+
 	vt_12 <- seq(t0_12, 32, by = 1) 		
 	
 	vparameters <- c(nu=nu, mu=mu, R0_1=R0_1, R0_2=R0_2, sigma_1=sigma_1, sigma_2=sigma_2, sigma_12=sigma_12,
@@ -395,7 +398,7 @@ for (iter in 1:niter){				# Start of the loop
 	## If the likelihood ratio is with the previous best likelihood is lower than r, then these parameters are the new best parameters.
 	r = runif(1,0,1)
 	if (iter==1|pois_negloglike<min_like | r>exp(pois_negloglike-min_like)){
-		cat("New best fit values for beta_02E1o:",beta_02E1o, "| vbeta_01Eo2:", vbeta_01Eo2, "| vbeta_012:", vbeta_012, "| t0_12:", t0_12, "| Poisson likelihood:", pois_negloglike, "\n") 		# This is to print the new best fit values of the parameters
+		cat("New best fit values for beta_02E1o:",beta_02E1o, "| beta_01Eo2:", beta_01Eo2, "| beta_012:", beta_012, "| t0_12:", t0_12, "| Poisson likelihood:", pois_negloglike, "\n") 		# This is to print the new best fit values of the parameters
 		Co_model_best = Co_model								
 		min_like = pois_negloglike
 		beta_02E1o_old <- beta_02E1o				
@@ -424,7 +427,6 @@ for (iter in 1:niter){				# Start of the loop
 	}
 } 		# end of overall loop 
 
-
 plot(data$time,data$Co_data, pch = c(16), xlab="Time (weeks)",ylab="New Co-inf cases/week")		# Plot the actual data
 lines(seirmodel_12$time,Co_model_best,col=2,lwd=4)									# Overlay the best model fit
 legend("topright",legend=c("Data","Best fit Co-inf"),pch = c(16,NA_integer_), col=c(1,2),lty=c(0,1),lwd=c(1,4),bty="n")
@@ -441,8 +443,19 @@ vdat_12 = subset(vdat_12,pois_negloglike<(min(vdat_12$pois_negloglike)+100))
 write.table(vdat_12,"MCMC_Co-inf_optimisation_RSV-IF-Co-infection.csv",row.names=F)
 
 
+beta_02E1o <- beta_02E1o_old
+beta_01Eo2 <- beta_01Eo2_old
+beta_012 <- beta_012_old
 
-###########
+######## Summarise the results
+
+## Print the results of the parameter optimisation in overall
+cat("Results of the parameter optimisation:",
+"For IF: R0_1:",R0_1,"| epsilon_1:", epsilon_1, "| t0_1:", t0_1,
+"For RSV: R0_2:",R0_2,"| epsilon_2:", epsilon_2, "| t0_2:", t0_12,
+"For Co-inf: beta_01Eo2:",beta_01Eo2,"| beta_02E1o:", beta_02E1o, "| beta_012:", beta_012, "| t0_12:", t0_12,"\n")	
+
+
 ## Plot all data and all models
 
 plot(data$time,data$IF_data, pch = c(16), col=c(1), ylim=c(0,120), xlab="Time (weeks)",ylab="New cases/week")		
@@ -452,3 +465,4 @@ lines(seirmodel_12$time,IF_model_best,col=1,lwd=2, lty=2)
 lines(seirmodel_12$time,RSV_model_best,col=2,lwd=2, lty=2)								
 lines(seirmodel_12$time,Co_model_best,col=3,lwd=2, lty=2)		
 legend("topright",legend=c("Data IF","Data RSV","Data Co-inf","Model IF","Model RSV","Model Co-inf"),pch = c(16,16,16,NA_integer_,NA_integer_,NA_integer_), col=c(1,2,3,1,2,3),lty=c(0,0,0,2,2,2),lwd=c(1,1,1,2,2,2),bty="n")
+			
