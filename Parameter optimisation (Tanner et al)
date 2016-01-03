@@ -17,7 +17,7 @@ set.seed(123)
 require("deSolve")
 require("sfsmisc")
 
-## Load the data table
+## Define the data for IF
 data = read.table("Tanner et al 2012 data IF-RSV-Co.csv",header=TRUE,sep=",")
 IF_data = data$IF_data
 
@@ -63,7 +63,6 @@ state <- c(S_12=S_12, E_1o=E_1o, E_o2=E_o2, I_1o=I_1o, I_o2=I_o2, E_12=E_12, I_1
 			S_1x=S_1x, S_x2=S_x2, E_1x=E_1x, E_x2=E_x2, I_1x=I_1x, I_x2=I_x2, R_12=R_12)
 
 ## Define the parameters that are fixed and are not optimised
-## These are the parameters relating to co-infection and RSV and those IF parameters without uncertainty
 nu <- 12/1000/52					# Birth rate
 mu <- 9/1000/52						# Background death rate
 R0_2 <- 1.7							# Basic reproductive number for RSV
@@ -95,7 +94,7 @@ vR0_1 = numeric(0)					# Basic reproductive number for IF
 vepsilon_1 = numeric(0)				# Amplitude of seasonality of IF
 vt0_1 = numeric(0)					# Start of the epidemic of IF
 vpois_negloglike = numeric(0)		# Negative Poisson log likelihood (statistic for the optimisation)
-niter = 500						# Number of iterations for the parameter optimisation
+niter = 1000						# Number of iterations for the parameter optimisation
 
 # Define the intial 'best guesses' for the IF parameters that are optimised
 R0_1_old <- 1.3	
@@ -118,8 +117,10 @@ for (iter in 1:niter){				# Start of the loop
 	
 	beta_01 <- R0_1 * (gamma_1 + mu)	# Rate at which susceptible individuals are exposed for IF
 	
+	# Ensure that the start of the model is not after the start of the data
 	if(t0_1>1){t0_1 <- 1}
 	
+	# Define the time vector for the model
 	vt_1 <- seq(t0_1, 32, by = 1) 		
 	
 	vparameters <- c(nu=nu, mu=mu, R0_1=R0_1, R0_2=R0_2, sigma_1=sigma_1, sigma_2=sigma_2, sigma_12=sigma_12,
@@ -130,25 +131,35 @@ for (iter in 1:niter){				# Start of the loop
 				omega_1x=omega_1x, omega_x2=omega_x2, omega_12=omega_12, 
 				phi_1=phi_1, phi_2=phi_2, phi_12=phi_12)
 
+	# Define the overall model
 	seirmodel_12 <- as.data.frame(lsoda(state, vt_1, seir_12, vparameters))
+	# Restrict the model to the same time as the data
 	seirmodel_12 = subset(seirmodel_12,time%in%data$time)
+	
+	# Extract IF incidence from the model
 	IF_model = beta_01 * (1 + epsilon_1 * cos(2*pi * (seirmodel_12$time-phi_1)/52)) * (seirmodel_12$I_1o + seirmodel_12$I_1x + seirmodel_12$I_12)/N * seirmodel_12$S_12 + beta_01 * (1 + epsilon_1 * cos(2*pi * (seirmodel_12$time-phi_1)/52)) * (seirmodel_12$I_1o + seirmodel_12$I_1x + seirmodel_12$I_12)/N * seirmodel_12$S_1x
 
-	## Model values are normalised to sum to the data
-	IF_model = IF_model * sum(IF_data)/sum(IF_model) + 0.001
+	# Model values are normalised to sum to the data
+	IF_model = IF_model * sum(IF_data)/sum(IF_model)
 
+	# Ensure that there are no zero/negative values in the model as the log values are taken below
+	IF_model[IF_model<0.0001] <- 0.00001
+
+	# Calculate the likelihood statistic
+	pois_negloglike  = sum(-IF_data*log(IF_model)+IF_model)
+
+	# Save all values in a vector
 	vR0_1 = append(vR0_1,R0_1)				
 	vepsilon_1 = append(vepsilon_1,epsilon_1)		
 	vt0_1 = append(vt0_1,t0_1)
-	
-	pois_negloglike  = sum(-IF_data*log(IF_model)+IF_model)
 	vpois_negloglike = append(vpois_negloglike,pois_negloglike)
 
 	## A random number (r) between 0 and 1 is set. 
-	## If the likelihood ratio is with the previous best likelihood is lower than r, then these parameters are the new best parameters.
+	## If the likelihood ratio with the previous best likelihood is lower than r, then these parameters are the new best parameters.
 	r = runif(1,0,1)
 	if (iter==1|pois_negloglike<min_like | r>exp(pois_negloglike-min_like)){
-		cat("New best fit values for R0_1:",R0_1, "| epsilon_1:", epsilon_1, "| t0_1:", t0_1, "| Poisson likelihood:", pois_negloglike, "\n") 		# This is to print the new best fit values of the parameters
+		# Print the new best fit values of the parameters and update the parameters with the new values
+		cat("New best fit values for R0_1:",R0_1, "| epsilon_1:", epsilon_1, "| t0_1:", t0_1, "| Poisson likelihood:", pois_negloglike, "\n") 	
 		IF_model_best = IF_model								
 		min_like = pois_negloglike
 		R0_1_old = R0_1				
@@ -156,7 +167,7 @@ for (iter in 1:niter){				# Start of the loop
 		t0_1_old = t0_1
 	}
 	
-	## Every 100 iterations, print plots of data and model fit and of the optimised parameters
+	## Every 100 iterations, print plots of data and model fit and of the optimised parameters; save the found values in a data frame
 	if (iter%%100==0){			
 		cat("Iteration",iter,"out of",niter,"\n")	# This is to print at what iteration number the process is 
 		mult.fig(4)	
@@ -171,25 +182,45 @@ for (iter in 1:niter){				# Start of the loop
 		plot(vt0_1[lgood_1],vpois_negloglike[lgood_1],xlab="Time of introduction of IF",ylab="Poisson negloglike statistic")
 		vdat_1 = data.frame(R0_1=vR0_1, epsilon_1=vepsilon_1, t0_1=vt0_1, pois_negloglike=vpois_negloglike)
 		vdat_1 = subset(vdat_1,pois_negloglike<(min(vdat_1$pois_negloglike)+100))
-		write.table(vdat_1,"MCMC_IF_optimisation_RSV-IF-Co-infection.csv",row.names=F)
+		write.table(vdat_1,"C:/Users/Robin/OneDrive/Dokumente/MRes/1. RSV with Riley/Model parameter optimisation/Results/MCMC_IF_optimisation_RSV-IF-Co-infection.csv",row.names=F)
 	}
 } 		# end of overall loop 
 
+## After the final iteration, print and save all plots individually, and save the parameter values
 
-plot(data$time,data$IF_data, pch = c(16), xlab="Time (weeks)",ylim=c(0,60), ylab="New IF cases/week")		
+jpeg("C:/Users/Robin/OneDrive/Dokumente/MRes/1. RSV with Riley/Model parameter optimisation/Results/IFModelFit.jpg", width=6, height=4, units="in", res=400)
+mult.fig(1)	
+plot(data$time,data$IF_data, pch = c(16), xlab="Time (weeks)",ylim=c(0,60), ylab="New influenza cases per week")		
 lines(seirmodel_12$time,IF_model_best,col=2,lwd=4)
-legend("topright",legend=c("Data","Best fit IF"),pch = c(16,NA_integer_), col=c(1,2),lty=c(0,1),lwd=c(1,4),bty="n")
-par(new=T)
-plot(c(0,1),c(0,1),col=0,axes=F,xlab="",ylab="")
-lgood_1 = (vpois_negloglike<(min(vpois_negloglike)+25)) # remove large values 
-plot(vR0_1[lgood_1],vpois_negloglike[lgood_1],xlab="R0 for IF",ylab="Poisson negloglike statistic")
-plot(vepsilon_1[lgood_1],vpois_negloglike[lgood_1],xlab="IF amplitude of seasonality",ylab="Poisson negloglike statistic")
-plot(vt0_1[lgood_1],vpois_negloglike[lgood_1],xlab="Time of introduction of IF",ylab="Poisson negloglike statistic")
+legend("topright",legend=c("Influenza data","Influenza model fit"),pch = c(16,NA_integer_), col=c(1,2),lty=c(0,1),lwd=c(1,4),bty="n")
+dev.off()
+
+lgood_1 = (vpois_negloglike<(min(vpois_negloglike)+25)) 
+
+jpeg("C:/Users/Robin/OneDrive/Dokumente/MRes/1. RSV with Riley/Model parameter optimisation/Results/IFModelR0_1.jpg", width=6, height=4, units="in", res=400)
+mult.fig(1)	
+plot(vR0_1[lgood_1],vpois_negloglike[lgood_1],xlab="R0 for influenza",ylab="Negative Poisson likelihood statistic")
+dev.off()
+
+jpeg("C:/Users/Robin/OneDrive/Dokumente/MRes/1. RSV with Riley/Model parameter optimisation/Results/IFModelEpsilon_1.jpg", width=6, height=4, units="in", res=400)
+mult.fig(1)	
+plot(vepsilon_1[lgood_1],vpois_negloglike[lgood_1],xlab="Influenza amplitude of seasonality",ylab="Negative Poisson likelihood statistic")
+dev.off()
+
+jpeg("C:/Users/Robin/OneDrive/Dokumente/MRes/1. RSV with Riley/Model parameter optimisation/Results/IFModelT0_1.jpg", width=6, height=4, units="in", res=400)
+mult.fig(1)	
+plot(vt0_1[lgood_1],vpois_negloglike[lgood_1],xlab="Time of introduction of influenza",ylab="Negative Poisson likelihood statistic")
+dev.off()
 
 vdat_1 = data.frame(R0_1=vR0_1, epsilon_1=vepsilon_1, t0_1=vt0_1, pois_negloglike=vpois_negloglike)
 vdat_1 = subset(vdat_1,pois_negloglike<(min(vdat_1$pois_negloglike)+100))
-write.table(vdat_1,"MCMC_IF_optimisation_RSV-IF-Co-infection.csv",row.names=F)
+write.table(vdat_1,"C:/Users/Robin/OneDrive/Dokumente/MRes/1. RSV with Riley/Model parameter optimisation/Results/MCMC_IF_optimisation_RSV-IF-Co-infection.csv",row.names=F)
 
+## The optimised IF parameters are updated
+R0_1 = R0_1_old
+epsilon_1 = epsilon_1_old
+t0_1 = t0_1_old
+beta_01 <- R0_1 * (gamma_1 + mu)	# Rate at which susceptible individuals are exposed for IF
 
 
 ####################################################
@@ -201,15 +232,8 @@ rm(R0_2)
 rm(epsilon_2)
 rm(pois_negloglike)
 
-## Load the data 
+## Define the data for RSV 
 RSV_data = data$RSV_data
-
-## The IF parameters optimised in the previous step are updated
-R0_1 = R0_1_old
-epsilon_1 = epsilon_1_old
-beta_01 <- R0_1 * (gamma_1 + mu)	# Rate at which susceptible individuals are exposed for IF
-
-
 
 ## Define parameters for the optimisation, including the likelihood parameters 
 min_like = 1e12
@@ -217,7 +241,7 @@ vR0_2 = numeric(0)					# Basic reproductive number for RSV
 vepsilon_2 = numeric(0)				# Amplitude of seasonality of RSV
 vt0_2 = numeric(0)					# Start of the epidemic of RSV
 vpois_negloglike = numeric(0)		# Negative Poisson log likelihood (statistic for the optimisation)
-niter = 500						# Number of iterations for the parameter optimisation
+niter = 1000						# Number of iterations for the parameter optimisation
 
 # These are the intial 'best guesses' for RSV parameters that are optimised
 R0_2_old <- 1.7							
@@ -238,9 +262,10 @@ for (iter in 1:niter){				# Start of the loop
 	while(epsilon_2<0) epsilon_2 = rnorm(1,epsilon_2_old,sigma_epsilon_2)
 	while(t0_2>=max(data$time)) t0_2 = as.integer(rnorm(1,t0_2_old,sigma_t0_2))
 	
+	# Ensure that the start of the model is not after the start of the data
 	if(t0_2>1){t0_2 <- 1}
-
 	
+	# Define the time vector for the model
 	vt_2 <- seq(t0_2, 32, by = 1) 		
 	
 	vparameters <- c(nu=nu, mu=mu, R0_1=R0_1, R0_2=R0_2, sigma_1=sigma_1, sigma_2=sigma_2, sigma_12=sigma_12,
@@ -251,25 +276,35 @@ for (iter in 1:niter){				# Start of the loop
 				omega_1x=omega_1x, omega_x2=omega_x2, omega_12=omega_12, 
 				phi_1=phi_1, phi_2=phi_2, phi_12=phi_12)
 
+	# Define the overall model
 	seirmodel_12 <- as.data.frame(lsoda(state, vt_2, seir_12, vparameters))
+	# Restrict the model to the same time as the data
 	seirmodel_12 = subset(seirmodel_12,time%in%data$time)
+	
+	# Extract RSV incidence from the model
 	RSV_model = beta_02 * (1 + epsilon_2 * cos(2*pi * (seirmodel_12$time-phi_2)/52)) * (seirmodel_12$I_o2 + seirmodel_12$I_x2 + seirmodel_12$I_12)/N * seirmodel_12$S_12 + beta_02 * (1 + epsilon_2 * cos(2*pi * (seirmodel_12$time-phi_2)/52)) * (seirmodel_12$I_o2 + seirmodel_12$I_x2 + seirmodel_12$I_12)/N * seirmodel_12$S_x2
 
 	## Model values are normalised to sum to the data
 	RSV_model = RSV_model * sum(RSV_data)/sum(RSV_model) + 0.01
 
+	# Ensure that there are no zero/negative values in the model as the log values are taken below
+	RSV_model[RSV_model<0.0001] <- 0.00001
+
+	# Calculate the likelihood statistic
+	pois_negloglike  = sum(-RSV_data*log(RSV_model)+RSV_model)
+
+	# Save all values in a vector
 	vR0_2 = append(vR0_2,R0_2)				
 	vepsilon_2 = append(vepsilon_2,epsilon_2)		
 	vt0_2 = append(vt0_2,t0_2)
-	
-	pois_negloglike  = sum(-RSV_data*log(RSV_model)+RSV_model)
 	vpois_negloglike = append(vpois_negloglike,pois_negloglike)
 
 	## A random number (r) between 0 and 1 is set. 
 	## If the likelihood ratio is with the previous best likelihood is lower than r, then these parameters are the new best parameters.
 	r = runif(1,0,1)
 	if (iter==1|pois_negloglike<min_like | r>exp(pois_negloglike-min_like)){
-		cat("New best fit values for R0_2:",R0_2, "| epsilon_2:", epsilon_2, "| t0_2:", t0_2, "| Poisson likelihood:", pois_negloglike, "\n") 		# This is to print the new best fit values of the parameters
+	# Print the new best fit values of the parameters and update the parameters with the new values
+		cat("New best fit values for R0_2:",R0_2, "| epsilon_2:", epsilon_2, "| t0_2:", t0_2, "| Poisson likelihood:", pois_negloglike, "\n") 		
 		RSV_model_best = RSV_model								
 		min_like = pois_negloglike
 		R0_2_old = R0_2				
@@ -277,7 +312,7 @@ for (iter in 1:niter){				# Start of the loop
 		t0_2_old = t0_2
 	}
 	
-	## Every 100 iterations, print plots of data and model fit and of the optimised parameters
+	## Every 100 iterations, print plots of data and model fit and of the optimised parameters; save the values in a data frame
 	if (iter%%100==0){			
 		cat("Iteration",iter,"out of",niter,"\n")	# This is to print at what iteration number the process is 
 		mult.fig(4)	
@@ -292,28 +327,45 @@ for (iter in 1:niter){				# Start of the loop
 		plot(vt0_2[lgood_2],vpois_negloglike[lgood_2],xlab="Time of introduction of RSV",ylab="Poisson negloglike statistic")
 		vdat_2 = data.frame(R0_2=vR0_2, epsilon_2=vepsilon_2, t0_2=vt0_2, pois_negloglike=vpois_negloglike)
 		vdat_2 = subset(vdat_2,pois_negloglike<(min(vdat_2$pois_negloglike)+100))
-		write.table(vdat_2,"MCMC_RSV_optimisation_RSV-IF-Co-infection.csv",row.names=F)
+		write.table(vdat_2,"C:/Users/Robin/OneDrive/Dokumente/MRes/1. RSV with Riley/Model parameter optimisation/Results/MCMC_RSV_optimisation_RSV-IF-Co-infection.csv",row.names=F)
 	}
 } 		# end of overall loop 
 
+## After the final iteration, print and save the plots individually, and save the parameter values
 
-plot(data$time,data$RSV_data, pch = c(16), xlab="Time (weeks)", ylim=c(0,120), ylab="New RSV cases/week")		# Plot the actual data
-lines(seirmodel_12$time,RSV_model_best,col=2,lwd=4)								# Overlay the best model fit
-legend("topright",legend=c("Data","Best fit RSV"),pch = c(16,NA_integer_), col=c(1,2),lty=c(0,1),lwd=c(1,4),bty="n")
-par(new=TRUE)
-plot(c(0,1),c(0,1),col=0,axes=F,xlab="",ylab="")
-lgood_2 = (vpois_negloglike<(min(vpois_negloglike)+25))		# restrict to smaller values
-plot(vR0_2[lgood_2],vpois_negloglike[lgood_2],xlab="R0 for RSV",ylab="Poisson negloglike statistic")
-plot(vepsilon_2[lgood_2],vpois_negloglike[lgood_2],xlab="RSV amplitude of seasonality",ylab="Poisson negloglike statistic")
-plot(vt0_2[lgood_2],vpois_negloglike[lgood_2],xlab="Time of introduction of RSV",ylab="Poisson negloglike statistic")
+jpeg("C:/Users/Robin/OneDrive/Dokumente/MRes/1. RSV with Riley/Model parameter optimisation/Results/RSVModelFit.jpg", width=6, height=4, units="in", res=400)
+mult.fig(1)	
+plot(data$time,data$RSV_data, pch = c(16), xlab="Time (weeks)", ylim=c(0,120), ylab="New RSV cases per week")		
+lines(seirmodel_12$time,RSV_model_best,col=2,lwd=4)					
+legend("topright",legend=c("RSV data","RSV model fit"),pch = c(16,NA_integer_), col=c(1,2),lty=c(0,1),lwd=c(1,4),bty="n")
+dev.off()
+
+lgood_2 = (vpois_negloglike<(min(vpois_negloglike)+25))	
+
+jpeg("C:/Users/Robin/OneDrive/Dokumente/MRes/1. RSV with Riley/Model parameter optimisation/Results/RSVModelR0_2.jpg", width=6, height=4, units="in", res=400)
+mult.fig(1)	
+plot(vR0_2[lgood_2],vpois_negloglike[lgood_2],xlab="R0 for RSV",ylab="Negative Poisson likelihood statistic")
+dev.off()
+
+jpeg("C:/Users/Robin/OneDrive/Dokumente/MRes/1. RSV with Riley/Model parameter optimisation/Results/RSVModelEpsilon_2.jpg", width=6, height=4, units="in", res=400)
+mult.fig(1)	
+plot(vepsilon_2[lgood_2],vpois_negloglike[lgood_2],xlab="RSV amplitude of seasonality",ylab="Negative Poisson likelihood statistic")
+dev.off()
+
+jpeg("C:/Users/Robin/OneDrive/Dokumente/MRes/1. RSV with Riley/Model parameter optimisation/Results/RSVModelT0_2.jpg", width=6, height=4, units="in", res=400)
+mult.fig(1)	
+plot(vt0_2[lgood_2],vpois_negloglike[lgood_2],xlab="Time of introduction of RSV",ylab="Negative Poisson likelihood statistic")
+dev.off()
 
 vdat_2 = data.frame(R0_2=vR0_2, epsilon_2=vepsilon_2, t0_2=vt0_2, pois_negloglike=vpois_negloglike)
 vdat_2 = subset(vdat_2,pois_negloglike<(min(vdat_2$pois_negloglike)+100))
-write.table(vdat_2,"MCMC_RSV_optimisation_RSV-IF-Co-infection.csv",row.names=F)
+write.table(vdat_2,"C:/Users/Robin/OneDrive/Dokumente/MRes/1. RSV with Riley/Model parameter optimisation/Results/MCMC_RSV_optimisation_RSV-IF-Co-infection.csv",row.names=F)
 
-
-
-
+## Update the optimised RSV parameters
+R0_2 = R0_2_old
+epsilon_2 = epsilon_2_old
+t0_2 = t0_2_old
+beta_02 <- R0_2 * (gamma_2 + mu)	
 
 
 ####################################################
@@ -326,15 +378,8 @@ rm(beta_02E1o)
 rm(beta_01Eo2) 		
 rm(beta_012) 	
 
-## Load the data 
+## Define the co-inf data
 Co_data = data$Co_data
-
-## The IF parameters optimised in the previous step are updated
-R0_2 = R0_2_old
-epsilon_2 = epsilon_2_old
-beta_02 <- R0_2 * (gamma_2 + mu)	
-
-
 
 ## Define parameters for the optimisation, including the likelihood parameters 
 min_like = 1e12
@@ -343,13 +388,13 @@ vbeta_01Eo2 = numeric(0) 			# Rate at which susceptible individuals already expo
 vbeta_012 	= numeric(0) 			# Rate at which fully susceptible individuals become exposed to co-inf 
 vt0_12 = numeric(0)					# Start of the epidemic of RSV
 vpois_negloglike = numeric(0)		# Negative Poisson log likelihood (statistic for the optimisation)
-niter = 500						# Number of iterations for the parameter optimisation
+niter = 1000						# Number of iterations for the parameter optimisation
 
 # These are the intial 'best guesses' for co-inf parameters that are optimised
-beta_02E1o_old <- 0.1776414				
-beta_01Eo2_old <- 0.9100225	
-beta_012_old <-	1.776414	
-t0_12_old <- 10 		
+beta_02E1o_old <- 1.776414				
+beta_01Eo2_old <- 9.100225	
+beta_012_old <-	.1776414	
+t0_12_old <- 0 		
 
 # Define the sampling widths; these are kept wide for initial runs of the optimisation 
 sigma_beta_02E1o = 3					
@@ -368,8 +413,10 @@ for (iter in 1:niter){				# Start of the loop
 	while(beta_012<1)		beta_012		= rnorm(1,beta_012_old,sigma_beta_012)
 	while(t0_12>=max(data$time)) t0_12		= as.integer(rnorm(1,t0_12_old,sigma_t0_12))
 	
+	# Ensure that the model time does not start after the data time
 	if(t0_12>1){t0_12 <- 1}
 
+	# Define the time vector for the model
 	vt_12 <- seq(t0_12, 32, by = 1) 		
 	
 	vparameters <- c(nu=nu, mu=mu, R0_1=R0_1, R0_2=R0_2, sigma_1=sigma_1, sigma_2=sigma_2, sigma_12=sigma_12,
@@ -380,25 +427,36 @@ for (iter in 1:niter){				# Start of the loop
 				omega_1x=omega_1x, omega_x2=omega_x2, omega_12=omega_12, 
 				phi_1=phi_1, phi_2=phi_2, phi_12=phi_12)
 
+	# Define the overall model
 	seirmodel_12 <- as.data.frame(lsoda(state, vt_12, seir_12, vparameters))
+	# Restrict the model time to the same time as the data
 	seirmodel_12 = subset(seirmodel_12,time%in%data$time)
+	
+	# Extract the co-inf incidence from the model
 	Co_model = beta_02E1o * (1 + epsilon_2 * cos(2*pi * (seirmodel_12$time-phi_2)/52)) * (seirmodel_12$I_o2 + seirmodel_12$I_x2 + seirmodel_12$I_12)/N * seirmodel_12$E_1o + beta_01Eo2 * (1 + epsilon_1 * cos(2*pi * (seirmodel_12$time-phi_1)/52)) * (seirmodel_12$I_1o + seirmodel_12$I_1x + seirmodel_12$I_12)/N * seirmodel_12$E_o2 + beta_012 * (1 + epsilon_12 * cos(2*pi * (seirmodel_12$time-phi_12)/52)) * seirmodel_12$I_12/N * seirmodel_12$S_12
-	## Model values are normalised to sum to the data
+	
+	# Model values are normalised to sum to the data
 	Co_model = Co_model * sum(Co_data)/sum(Co_model) + 0.01
 
+	# Ensure that there are no negative or zero values in the model as the logs are taken below
+	Co_model[Co_model<0.0001] <- 0.00001
+	
+	# Calculate the likelihood statistic
+	pois_negloglike  = sum(-Co_data*log(Co_model)+Co_model)
+
+	# Save everything in a vector
 	vbeta_02E1o = append(vbeta_02E1o,beta_02E1o)				
 	vbeta_01Eo2 = append(vbeta_01Eo2,beta_01Eo2)
 	vbeta_012 = append(vbeta_012,beta_012)	
 	vt0_12 = append(vt0_12,t0_12)
-	
-	pois_negloglike  = sum(-Co_data*log(Co_model)+Co_model)
 	vpois_negloglike = append(vpois_negloglike,pois_negloglike)
 
 	## A random number (r) between 0 and 1 is set. 
 	## If the likelihood ratio is with the previous best likelihood is lower than r, then these parameters are the new best parameters.
 	r = runif(1,0,1)
 	if (iter==1|pois_negloglike<min_like | r>exp(pois_negloglike-min_like)){
-		cat("New best fit values for beta_02E1o:",beta_02E1o, "| beta_01Eo2:", beta_01Eo2, "| beta_012:", beta_012, "| t0_12:", t0_12, "| Poisson likelihood:", pois_negloglike, "\n") 		# This is to print the new best fit values of the parameters
+	# Print the new best fit values of the parameters and update the parameters with the new values
+		cat("New best fit values for beta_02E1o:",beta_02E1o, "| beta_01Eo2:", beta_01Eo2, "| beta_012:", beta_012, "| t0_12:", t0_12, "| Poisson likelihood:", pois_negloglike, "\n") 		
 		Co_model_best = Co_model								
 		min_like = pois_negloglike
 		beta_02E1o_old <- beta_02E1o				
@@ -407,11 +465,11 @@ for (iter in 1:niter){				# Start of the loop
 		t0_12_old = t0_12
 	}
 	
-	## Every 100 iterations, print plots of data and model fit and of the optimised parameters
+	## Every 100 iterations, print plots of data and model fit and of the optimised parameters; save everything in a data frame
 	if (iter%%100==0){			
 		cat("Iteration",iter,"out of",niter,"\n")	# This is to print at what iteration number the process is 
 		mult.fig(5)	
-		plot(data$time,data$Co_data, pch = c(16), xlab="Time (weeks)",ylab="New Co-inf cases/week")		# Plot the actual data
+		plot(data$time,data$Co_data, pch = c(16), xlab="Time (weeks)",ylim=c(0,4),ylab="New Co-inf cases/week")		# Plot the actual data
 		lines(seirmodel_12$time,Co_model_best,col=2,lwd=4)									# Overlay the best model fit
 		legend("topright",legend=c("Data","Best fit Co-inf"),pch = c(16,NA_integer_), col=c(1,2),lty=c(0,1),lwd=c(1,4),bty="n")
 		par(new=TRUE)
@@ -423,46 +481,73 @@ for (iter in 1:niter){				# Start of the loop
 		plot(vt0_12[lgood_12],vpois_negloglike[lgood_12],xlab="Time of introduction of Co-inf",ylab="Poisson negloglike statistic")
 		vdat_12 = data.frame(beta_02E1o=vbeta_02E1o, beta_01Eo2=vbeta_01Eo2, beta_012=vbeta_012, t0_12=vt0_12, pois_negloglike=vpois_negloglike)
 		vdat_12 = subset(vdat_12,pois_negloglike<(min(vdat_12$pois_negloglike)+100))
-		write.table(vdat_12,"MCMC_Co-inf_optimisation_RSV-IF-Co-infection.csv",row.names=F)
+		write.table(vdat_12,"C:/Users/Robin/OneDrive/Dokumente/MRes/1. RSV with Riley/Model parameter optimisation/Results/MCMC_Co-inf_optimisation_RSV-IF-Co-infection.csv",row.names=F)
 	}
 } 		# end of overall loop 
 
-plot(data$time,data$Co_data, pch = c(16), xlab="Time (weeks)",ylab="New Co-inf cases/week")		# Plot the actual data
+
+## After the end of the loop, print and save the plots individually, and save the parameter values
+
+jpeg("C:/Users/Robin/OneDrive/Dokumente/MRes/1. RSV with Riley/Model parameter optimisation/Results/CoInfectionModelFit.jpg", width=6, height=4, units="in", res=400)
+mult.fig(1)	
+plot(data$time,data$Co_data, pch = c(16), xlab="Time (weeks)",ylim=c(0,4), ylab="New co-infection cases per week")		# Plot the actual data
 lines(seirmodel_12$time,Co_model_best,col=2,lwd=4)									# Overlay the best model fit
-legend("topright",legend=c("Data","Best fit Co-inf"),pch = c(16,NA_integer_), col=c(1,2),lty=c(0,1),lwd=c(1,4),bty="n")
-par(new=TRUE)
-plot(c(0,1),c(0,1),col=0,axes=F,xlab="",ylab="")
+legend("topright",legend=c("Co-infection data","Co-infection model fit"),pch = c(16,NA_integer_), col=c(1,2),lty=c(0,1),lwd=c(1,4),bty="n")
+dev.off()
+
 lgood_12 = (vpois_negloglike<(min(vpois_negloglike)+25))		# restrict to smaller values
-plot(vbeta_02E1o[lgood_12],vpois_negloglike[lgood_12],xlab="beta_02E1o",ylab="Poisson negloglike statistic")
-plot(vbeta_01Eo2[lgood_12],vpois_negloglike[lgood_12],xlab="beta_01Eo2",ylab="Poisson negloglike statistic")
-plot(vbeta_012[lgood_12],vpois_negloglike[lgood_12],xlab="beta_012",ylab="Poisson negloglike statistic")
-plot(vt0_12[lgood_12],vpois_negloglike[lgood_12],xlab="Time of introduction of Co-inf",ylab="Poisson negloglike statistic")
-	
+
+jpeg("C:/Users/Robin/OneDrive/Dokumente/MRes/1. RSV with Riley/Model parameter optimisation/Results/CoInfectionModelBeta_02E1o.jpg", width=6, height=4, units="in", res=400)
+mult.fig(1)	
+plot(vbeta_02E1o[lgood_12],vpois_negloglike[lgood_12],xlab="Beta for infection with influenza after exposure to RSV",ylab="Negative Poisson likelihood statistic")
+dev.off()
+
+jpeg("C:/Users/Robin/OneDrive/Dokumente/MRes/1. RSV with Riley/Model parameter optimisation/Results/CoInfectionModelBeta_01Eo2.jpg", width=6, height=4, units="in", res=400)
+mult.fig(1)	
+plot(vbeta_01Eo2[lgood_12],vpois_negloglike[lgood_12],xlab="Beta for infection with RSV after exposure to influenza",ylab="Negative Poisson likelihood statistic")
+dev.off()
+
+jpeg("C:/Users/Robin/OneDrive/Dokumente/MRes/1. RSV with Riley/Model parameter optimisation/Results/CoInfectionModelBeta_012.jpg", width=6, height=4, units="in", res=400)
+mult.fig(1)	
+plot(vbeta_012[lgood_12],vpois_negloglike[lgood_12],xlab="Beta for simultaneous infection with RSV and influenza",ylab="Negative Poisson likelihood statistic")
+dev.off()
+
+jpeg("C:/Users/Robin/OneDrive/Dokumente/MRes/1. RSV with Riley/Model parameter optimisation/Results/CoInfectionModelT0_12.jpg", width=6, height=4, units="in", res=400)
+mult.fig(1)	
+plot(vt0_12[lgood_12],vpois_negloglike[lgood_12],xlab="Time of introduction of co-infection",ylab="Negative Poisson likelihood statistic")
+dev.off()
+
 vdat_12 = data.frame(beta_02E1o=vbeta_02E1o, beta_01Eo2=vbeta_01Eo2, beta_012=vbeta_012, t0_12=vt0_12, pois_negloglike=vpois_negloglike)
 vdat_12 = subset(vdat_12,pois_negloglike<(min(vdat_12$pois_negloglike)+100))
-write.table(vdat_12,"MCMC_Co-inf_optimisation_RSV-IF-Co-infection.csv",row.names=F)
+write.table(vdat_12,"C:/Users/Robin/OneDrive/Dokumente/MRes/1. RSV with Riley/Model parameter optimisation/Results/MCMC_Co-inf_optimisation_RSV-IF-Co-infection.csv",row.names=F)
 
-
+## Update the optimised co-inf parameters
 beta_02E1o <- beta_02E1o_old
 beta_01Eo2 <- beta_01Eo2_old
 beta_012 <- beta_012_old
+t0_12 <- t0_12_old
 
-######## Summarise the results
 
-## Print the results of the parameter optimisation in overall
-cat("Results of the parameter optimisation:",
-"For IF: R0_1:",R0_1,"| epsilon_1:", epsilon_1, "| t0_1:", t0_1,
-"For RSV: R0_2:",R0_2,"| epsilon_2:", epsilon_2, "| t0_2:", t0_12,
-"For Co-inf: beta_01Eo2:",beta_01Eo2,"| beta_02E1o:", beta_02E1o, "| beta_012:", beta_012, "| t0_12:", t0_12,"\n")	
+#########################
+### Summarise the results
 
+## Print and save the results of the parameter optimisation in overall
+cat("Results of the parameter optimisation:", "\n",
+"For IF: R0_1:",R0_1,"| epsilon_1:", epsilon_1, "| t0_1:", t0_1, "\n",
+"For RSV: R0_2:",R0_2,"| epsilon_2:", epsilon_2, "| t0_2:", t0_12, "\n",
+"For Co-inf: beta_01Eo2:",beta_01Eo2,"| beta_02E1o:", beta_02E1o, "| beta_012:", beta_012, "| t0_12:", t0_12)	
+vresults = data.frame(R0_1,epsilon_1,t0_1,R0_2,epsilon_2,t0_2,beta_01Eo2,beta_02E1o,beta_012,t0_12)
+write.table(vresults,"C:/Users/Robin/OneDrive/Dokumente/MRes/1. RSV with Riley/Model parameter optimisation/Results/MCMC_optimisation_RSV-IF-Co-infection_results.csv",row.names=F)
 
 ## Plot all data and all models
 
-plot(data$time,data$IF_data, pch = c(16), col=c(1), ylim=c(0,120), xlab="Time (weeks)",ylab="New cases/week")		
+jpeg("C:/Users/Robin/OneDrive/Dokumente/MRes/1. RSV with Riley/Model parameter optimisation/Results/AllDataAndModels.jpg", width=6, height=4, units="in", res=400)
+mult.fig(1)	
+plot(data$time,data$IF_data, pch = c(16), col=c(1), ylim=c(0,120), xlab="Time (weeks)",ylab="New cases per week")		
 points(data$time,data$RSV_data, pch = c(16), col=c(2))
 points(data$time,data$Co_data, pch = c(16), col=c(3))
 lines(seirmodel_12$time,IF_model_best,col=1,lwd=2, lty=2)								
 lines(seirmodel_12$time,RSV_model_best,col=2,lwd=2, lty=2)								
 lines(seirmodel_12$time,Co_model_best,col=3,lwd=2, lty=2)		
-legend("topright",legend=c("Data IF","Data RSV","Data Co-inf","Model IF","Model RSV","Model Co-inf"),pch = c(16,16,16,NA_integer_,NA_integer_,NA_integer_), col=c(1,2,3,1,2,3),lty=c(0,0,0,2,2,2),lwd=c(1,1,1,2,2,2),bty="n")
+legend("topright",legend=c("Influenza data","RSV data","Co-infection data","Influenza model fit","RSV model fit","Co-infection model fit"),pch = c(16,16,16,NA_integer_,NA_integer_,NA_integer_), col=c(1,2,3,1,2,3),lty=c(0,0,0,2,2,2),lwd=c(1,1,1,2,2,2),bty="n")
 			
