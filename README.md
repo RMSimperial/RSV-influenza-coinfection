@@ -13,4 +13,6 @@ Data files:
 
 Model: This code is for the compartmental model alone with defined parameters.
 
-Model optimisation (Tanner et al): This code is for the optimisation of the model parameters on the data by Tanner et al.
+Model optimisation (Tanner et al) (without seasonal forcing): This code is for the optimisation of the model parameters on the data by Tanner et al using a model without seasonal forcing.
+
+Model optimisation (Tanner et al) (with seasonal forcing): This code is for the optimisation of the model parameters on the data by Tanner et al using a model with seasonal forcing.
