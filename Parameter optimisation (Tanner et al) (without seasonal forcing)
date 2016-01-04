@@ -367,14 +367,14 @@ sigma_beta_12 = 3
 sigma_t0_12 = 3
 
 for (iter in 1:niter){				# Start of the loop
-	beta_2E1o <- 0.9				
-	beta_1Eo2 <- 0.9	
-	beta_12 <-	0.9
+	beta_02E1o <- -1				
+	beta_01Eo2 <- -1	
+	beta_012 <-	-1
 	t0_12 <- max(data$time)+1
 
-	while(beta_2E1o<1)		beta_2E1o		= rnorm(1,beta_2E1o_old,sigma_beta_2E1o)
-	while(beta_1Eo2<1)		beta_1Eo2		= rnorm(1,beta_1Eo2_old,sigma_beta_1Eo2)
-	while(beta_12<1)		beta_12		= rnorm(1,beta_12_old,sigma_beta_12)
+	while(beta_02E1o<0)		beta_02E1o		= rnorm(1,beta_02E1o_old,sigma_beta_02E1o)
+	while(beta_01Eo2<0)		beta_01Eo2		= rnorm(1,beta_01Eo2_old,sigma_beta_01Eo2)
+	while(beta_012<0)		beta_012		= rnorm(1,beta_012_old,sigma_beta_012)
 	while(t0_12>=max(data$time)) t0_12		= as.integer(rnorm(1,t0_12_old,sigma_t0_12))
 	
 	# Ensure that the model time does not start after the data time
