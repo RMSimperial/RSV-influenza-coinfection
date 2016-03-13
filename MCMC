@@ -1,0 +1,517 @@
+### This code is the application of a MCMC algorithm to a model of influenza, RSV and co-infection transmission
+### It has to be adapted to the specific circumstances of the user
+
+### IF: Influenza
+### RSV: Respiratory syncytial virus
+### Co-inf: Co-infection between IF and RSV
+
+rm(list=ls())
+set.seed(123)
+require("deSolve")
+require("sfsmisc")
+require("coda")
+
+## Set the working directory
+setwd("")
+
+
+
+## Define the data 
+data = read.table("",header=TRUE,sep=",")
+IF_data = data$IF
+RSV_data = data$RSV
+Co_data = data$Co
+
+
+## This function goes into the ODE solver
+seir_12 <- function(t, state, vparameters) {
+  
+  if(t >= tseed_1 && t<tseed_1+0.1){seed_1 <- 10}	else{seed_1 <- 0}
+  if(t >= tseed_2 && t<tseed_2+0.1){seed_2 <- 10}	else{seed_2 <- 0}
+  
+  with(as.list(c(state, vparameters)), {
+    dS_12 <- nu * S_12 - beta_1 * (I_1o + I_1x + I_12)/N * S_12 - beta_2 * (I_o2 + I_x2 + I_12)/N * S_12 - mu * S_12 - seed_1 - seed_2
+    dE_1o <- seed_1 + beta_1 * (I_1o + I_1x + I_12)/N * S_12 - beta_2E1o * (I_o2 + I_x2 + I_12)/N * E_1o - (sigma_1 + mu) * E_1o
+    dE_o2 <- seed_2 + beta_2 * (I_o2 + I_x2 + I_12)/N * S_12 - beta_1Eo2 * (I_1o + I_1x + I_12)/N * E_o2 - (sigma_2 + mu) * E_o2
+    dI_1o <- sigma_1 * E_1o - (gamma_1 + mu) * I_1o
+    dI_o2 <- sigma_2 * E_o2 - (gamma_2 + mu) * I_o2
+    dE_12 <- beta_2E1o * (I_o2 + I_x2 + I_12)/N * E_1o + beta_1Eo2 * (I_1o + I_1x + I_12)/N * E_o2 - (sigma_12 + mu) * E_12
+    dI_12 <- sigma_12 * E_12 - (gamma_12 + mu) * I_12
+    dS_1x <- (1-rho_2) * gamma_2 * I_o2 - beta_1 * (I_1o + I_1x + I_12)/N * S_1x - mu * S_1x 
+    dS_x2 <- (1-rho_1) * gamma_1 * I_1o - beta_2 * (I_o2 + I_x2 + I_12)/N * S_x2 - mu * S_x2
+    dE_1x <- beta_1 * (I_1o + I_1x + I_12)/N * S_1x - (sigma_1 + mu) * E_1x
+    dE_x2 <- beta_2 * (I_o2 + I_x2 + I_12)/N * S_x2 - (sigma_2 + mu) * E_x2
+    dI_1x <- sigma_1 * E_1x - (gamma_1 + mu) * I_1x
+    dI_x2 <- sigma_2 * E_x2 - (gamma_2 + mu) * I_x2
+    dR_12 <- (1-rho_12) * gamma_12 * I_12/N + (1-rho_1) * gamma_1 * I_1x + (1-rho_2) * gamma_2 * I_x2 - mu * R_12
+    cumInc_1 <- seed_1 + beta_1 * (I_1o + I_1x + I_12)/N * S_12 + beta_1 * (I_1o + I_1x + I_12)/N * S_1x
+    cumInc_2 <- seed_2 + beta_2 * (I_o2 + I_x2 + I_12)/N * S_12 + beta_2 * (I_o2 + I_x2 + I_12)/N * S_x2
+    cumInc_12 <- beta_2E1o * (I_o2 + I_x2 + I_12)/N * E_1o + beta_1Eo2 * (I_1o + I_1x + I_12)/N * E_o2
+    (list(c(dS_12, dE_1o, dE_o2, dI_1o, dI_o2, dE_12, dI_12, dS_1x, dS_x2, dE_1x, dE_x2, dI_1x, dI_x2, dR_12, cumInc_1, cumInc_2, cumInc_12)))
+  })
+}
+
+## Define initial state variables
+N <- 
+S_12 <- N             # Individuals susceptible to both IF and RSV 
+E_1o <- 0							# Individuals exposed to IF and susceptible to RSV
+E_o2 <- 0							# Individuals exposed to RSV and susceptible to IF
+I_1o <- 0							# Individuals infectious with IF and susceptible to RSV
+I_o2 <- 0							# Individuals infectious with RSV and susceptible to IF
+E_12 <- 0							# Individuals exposed to IF and RSV
+I_12 <- 0							# Individuals infectious with IF and RSV
+S_1x <- 0							# Individuals susceptible to IF and recovered from/immune to RSV
+S_x2 <- 0 						# Individuals susceptible to RSV and recovered from/immune to IF
+E_1x <- 0							# Individuals exposed to IF and recovered from/immune to RSV
+E_x2 <- 0							# Individuals exposed to RSV and recovered from/immune to IF
+I_1x <- 0							# Individuals infectious with IF and recovered from/immune to RSV
+I_x2 <- 0							# Individuals infectious with RSV and recovered from/immune to IF
+R_12 <- 0							# Individuals recovered from IF and RSV
+cumInc_1 <- 0         # Cumulative incidence of IF
+cumInc_2 <- 0         # Cumulative incidence of RSV
+cumInc_12 <- 0        # Cumulative incidence of co-infection
+state <- c(S_12=S_12, E_1o=E_1o, E_o2=E_o2, I_1o=I_1o, I_o2=I_o2, E_12=E_12, I_12=I_12, 
+           S_1x=S_1x, S_x2=S_x2, E_1x=E_1x, E_x2=E_x2, I_1x=I_1x, I_x2=I_x2, R_12=R_12, cumInc_1, cumInc_2, cumInc_12)
+
+## Define the parameters that are fixed and are not optimised
+nu <- 12/1000/52					# Birth rate
+mu <- 9/1000/52						# Background death rate
+sigma_1 <- 1/(1.6/7)				# Inverse of latent period for IF
+sigma_2 <- 1/(4/7)					# Inverse of latent period for RSV
+sigma_12 <- 1/(2/7)					# Inverse of latent period for co-inf
+gamma_1 <- 1/(1/7)					# Inverse of infectious period for IF
+gamma_2 <- 1/(6.7/7)				# Inverse of infectious period for RSV
+gamma_12 <- 1/(3/7)					# Inverse of infectious period for co-inf
+rho_1 <- 0.0005					  	# Probablity of infection-induced death for disease IF
+rho_2 <- 0				    			# Probablity of infection-induced death for disease RSV
+rho_12 <- 0.0005			  		# Probablity of infection-induced death for co-inf
+
+
+min_like = 1e12
+
+## Create vectors for the parameters for the optimisation and likelihood parameters 
+vR0_1 = numeric(0)					# Basic reproductive number for IF
+vR0_2 = numeric(0)					# Basic reproductive number for RSV
+vtseed_1 = numeric(0)				# Start of the epidemic of IF
+vtseed_2 = numeric(0)				# Start of the epidemic of RSV
+vbeta_1Eo2 = numeric(0)     # Rate of transmission for IF infection after RSV infection
+vbeta_2E1o = numeric(0)     # Rate of transmission for RSV infection after IF infection
+vpc_1 = numeric(0)          # Proportion clinical parameter for IF
+vpc_2 = numeric(0)          # Proportion clinical parameter for RSV
+vpc_12 = numeric(0)         # Proportion clinical parameter for co-infection
+vpois_negloglike = numeric(0)		#  Poisson log likelihood (statistic for the optimisation)
+
+niter = 100000						# Number of iterations for the parameter optimisation
+
+# Define the intial prior values for the parameters that are optimised
+R0_1_old = 1.3
+R0_2_old = 1.7
+tseed_1_old = -5				
+tseed_2_old = -20
+beta_1Eo2_old = 1.3 * (gamma_1 + mu)
+beta_2E1o_old = 1.3 * (gamma_2 + mu)
+pc_1_old = 1/1000
+pc_2_old = 1/1000
+pc_12_old = 1/1000
+
+# Define the sampling widths for the proposal distributions
+sigma_R0_1 = 0.3					
+sigma_tseed_1 = 5
+sigma_R0_2 = 0.3		
+sigma_tseed_2 = 5
+sigma_beta_1Eo2 = 3
+sigma_beta_2E1o = 3
+sigma_pc_1 = 1/100
+sigma_pc_2 = 1/100
+sigma_pc_12 = 1/100
+
+# Save the conditions of the MCMC application
+cond = data.frame(niter=niter, R0_1_old=R0_1_old, tseed_1_old=tseed_1_old, pc_1_old=pc_1_old, 
+                    R0_2_old=R0_2_old, tseed_2_old=tseed_2_old, pc_2_old=pc_2_old, 
+                    beta_2E1o_old=beta_2E1o_old, beta_1Eo2_old=beta_1Eo2_old, pc_12_old=pc_12_old, 
+                    sigma_R0_1=sigma_R0_1, sigma_tseed_1=sigma_tseed_1, sigma_pc_1=sigma_pc_1,
+                    sigma_R0_2=sigma_R0_2, sigma_tseed_2=sigma_tseed_2, sigma_pc_2=sigma_pc_2,
+                    sigma_beta_2E1o=sigma_beta_2E1o, sigma_beta_1Eo2=sigma_beta_1Eo2, sigma_pc_12=sigma_pc_12)
+write.csv(cond,"MCMC_cond.csv",row.names=F)
+
+# Define the time vector for the model
+vt <- seq(-50, 33, by = 1) 		
+
+for (iter in 1:niter){				# Start of the loop
+  R0_1 <- 0.9							
+  tseed_1 <- max(data$time)+1
+  R0_2 <- 0.9							
+  tseed_2 <- max(data$time)+1
+  beta_2E1o <- -1
+  beta_1Eo2 <- -1
+  pc_1 <- -1
+  pc_2 <- -1
+  pc_12 <- -1
+  
+  random <- sample(1:9, 1)
+  
+  if(random==1){
+    while(R0_1<1)      R0_1      = rnorm(1,R0_1_old,sigma_R0_1)
+    tseed_1 <- tseed_1_old
+    pc_1 <- pc_1_old
+    R0_2 <- R0_2_old						
+    tseed_2 <- tseed_2_old
+    pc_2 <- pc_2_old
+    beta_2E1o <- beta_2E1o_old
+    beta_1Eo2 <- beta_1Eo2_old
+    pc_12 <- pc_12_old
+  }
+  
+  if(random==2){
+    R0_1 <- R0_1_old						
+    while(tseed_1>=max(data$time)) tseed_1 = as.integer(rnorm(1,tseed_1_old,sigma_tseed_1))
+    pc_1 <- pc_1_old
+    R0_2 <- R0_2_old						
+    tseed_2 <- tseed_2_old
+    pc_2 <- pc_2_old
+    beta_2E1o <- beta_2E1o_old
+    beta_1Eo2 <- beta_1Eo2_old
+    pc_12 <- pc_12_old
+  }
+  
+  if(random==3){
+    R0_1 <- R0_1_old						
+    tseed_1 <- tseed_1_old
+    while(pc_1>1 | pc_1<0) pc_1 = rnorm(1,pc_1_old,sigma_pc_1)
+    R0_2 <- R0_2_old						
+    tseed_2 <- tseed_2_old
+    pc_2 <- pc_2_old
+    beta_2E1o <- beta_2E1o_old
+    beta_1Eo2 <- beta_1Eo2_old
+    pc_12 <- pc_12_old
+  }
+  
+  if(random==4){
+    R0_1 <- R0_1_old						
+    tseed_1 <- tseed_1_old
+    pc_1 <- pc_1_old
+    while(R0_2<1)      R0_2      = rnorm(1,R0_2_old,sigma_R0_2)
+    tseed_2 <- tseed_2_old
+    pc_2 <- pc_2_old
+    beta_2E1o <- beta_2E1o_old
+    beta_1Eo2 <- beta_1Eo2_old
+    pc_12 <- pc_12_old
+  }
+  
+  if(random==5){
+    R0_1 <- R0_1_old						
+    tseed_1 <- tseed_1_old
+    pc_1 <- pc_1_old
+    R0_2 <- R0_2_old						
+    while(tseed_2>=max(data$time)) tseed_2 = as.integer(rnorm(1,tseed_2_old,sigma_tseed_2))
+    pc_2 <- pc_2_old
+    beta_2E1o <- beta_2E1o_old
+    beta_1Eo2 <- beta_1Eo2_old
+    pc_12 <- pc_12_old
+  }
+  
+  if(random==6){
+    R0_1 <- R0_1_old						
+    tseed_1 <- tseed_1_old
+    pc_1 <- pc_1_old
+    R0_2 <- R0_2_old						
+    tseed_2 <- tseed_2_old
+    while(pc_2>1 | pc_2<0) pc_2 = rnorm(1,pc_2_old,sigma_pc_2)
+    beta_2E1o <- beta_2E1o_old
+    beta_1Eo2 <- beta_1Eo2_old
+    pc_12 <- pc_12_old
+  }
+  
+  if(random==7){
+    R0_1 <- R0_1_old						
+    tseed_1 <- tseed_1_old
+    pc_1 <- pc_1_old
+    R0_2 <- R0_2_old						
+    tseed_2 <- tseed_2_old
+    pc_2 <- pc_2_old
+    while(beta_2E1o<0)		beta_2E1o		= rnorm(1,beta_2E1o_old,sigma_beta_2E1o)
+    beta_1Eo2 <- beta_1Eo2_old
+    pc_12 <- pc_12_old
+  }
+  
+  if(random==8){
+    R0_1 <- R0_1_old						
+    tseed_1 <- tseed_1_old
+    pc_1 <- pc_1_old
+    R0_2 <- R0_2_old						
+    tseed_2 <- tseed_2_old
+    pc_2 <- pc_2_old
+    beta_2E1o <- beta_2E1o_old
+    while(beta_1Eo2<0)		beta_1Eo2		= rnorm(1,beta_1Eo2_old,sigma_beta_1Eo2)
+    pc_12 <- pc_12_old
+  }
+  
+  if(random==9){
+    R0_1 <- R0_1_old						
+    tseed_1 <- tseed_1_old
+    pc_1 <- pc_1_old
+    R0_2 <- R0_2_old						
+    tseed_2 <- tseed_2_old
+    pc_2 <- pc_2_old
+    beta_2E1o <- beta_2E1o_old
+    beta_1Eo2 <- beta_1Eo2_old
+    while(pc_12>1 | pc_12<0) pc_12 = rnorm(1,pc_12_old,sigma_pc_12)
+  }
+  
+  beta_1 <- R0_1 * (gamma_1 + mu)	# Rate at which susceptible individuals are exposed for IF
+  beta_2 <- R0_2 * (gamma_2 + mu)	# Rate at which susceptible individuals are exposed for RSV
+  
+  vparameters <- c(nu=nu, mu=mu, R0_1=R0_1, R0_2=R0_2, sigma_1=sigma_1, sigma_2=sigma_2, sigma_12=sigma_12,
+                   gamma_1=gamma_1, gamma_2=gamma_2, gamma_12=gamma_12, beta_1=beta_1, beta_2=beta_2,
+                   beta_2E1o=beta_2E1o, beta_1Eo2=beta_1Eo2, 
+                   rho_1=rho_1, rho_2=rho_2, rho_12=rho_12)
+  
+  # Define the overall model
+  seirmodel_12 <- as.data.frame(lsoda(state, vt, seir_12, vparameters))
+  # Restrict the model to the same time as the data
+  seirmodel_12 = subset(seirmodel_12,time%in%data$time)
+  
+  # Extract incidence from the model
+  nots <- dim(seirmodel_12)[1]
+  inc_model <- matrix(nrow = nots,ncol=4,dimnames=list(1:nots,c("time","IF","RSV","Co-infection")))
+  inc_model[1,] <- 0
+  inc_model[,"time"] <- seirmodel_12[,"time"] 
+  inc_model[2:nots,"IF"] <- c(seirmodel_12[2:nots,"V16"]-seirmodel_12[1:(nots-1),"V16"])
+  inc_model[2:nots,"RSV"] <- c(seirmodel_12[2:nots,"V17"]-seirmodel_12[1:(nots-1),"V17"])
+  inc_model[2:nots,"Co-infection"] <- c(seirmodel_12[2:nots,"V18"]-seirmodel_12[1:(nots-1),"V18"])
+  
+  # Scale the incidence according to the pc parameters
+  inc_model[,2] <- inc_model[,2] * pc_1
+  inc_model[,3] <- inc_model[,3] * pc_2
+  inc_model[,4] <- inc_model[,4] * pc_12
+  
+  # Ensure that there are no zero incidence entries as the log value is taken below
+  inc_model[inc_model<=0] <- 0.00001
+  
+  # Calculate the likelihood statistic
+  pois_negloglike  = sum(-IF_data*log(inc_model[,2])+inc_model[,2]) + sum(-RSV_data*log(inc_model[,3])+inc_model[,3]) + sum(-Co_data*log(inc_model[,4])+inc_model[,4])
+  
+  # Calculate the likelihood ratio
+  lr = exp(pois_negloglike - min_like)
+  
+  # Save all values in the vectors
+  vR0_1 = append(vR0_1,R0_1)				
+  vtseed_1 = append(vtseed_1,tseed_1)
+  vpc_1 = append(vpc_1,pc_1)
+  vR0_2 = append(vR0_2,R0_2)				
+  vtseed_2 = append(vtseed_2,tseed_2)
+  vpc_2 = append(vpc_2,pc_2)
+  vbeta_1Eo2 = append(vbeta_1Eo2,beta_1Eo2)
+  vbeta_2E1o = append(vbeta_2E1o,beta_2E1o)
+  vpc_12 = append(vpc_12,pc_12)
+  vpois_negloglike = append(vpois_negloglike,pois_negloglike)
+  
+  ## A random number (r) between 0 and 1 is set. 
+  ## If the likelihood ratio with the previous best likelihood is lower than r, then these parameters are the new best parameters.
+  
+  r = runif(1,0,1)
+  
+  if (iter==1|pois_negloglike<min_like | r>lr){
+    # Print the new best fit values of the parameters and update the parameters with the new values
+    cat("New best fit values for R0_1:", R0_1, "| tseed_1:", tseed_1, "| pc_1:", pc_1, "R0_2:", R0_2, "| tseed_2:", tseed_2, "| pc_2:", pc_2, "beta_1Eo2:", beta_1Eo2, "beta_2E1o:", beta_2E1o, "| pc_12:", pc_12, "| Poisson likelihood:", pois_negloglike, "\n") 				
+    min_like = pois_negloglike
+    R0_1_old = R0_1				
+    tseed_1_old = tseed_1
+    pc_1_old = pc_1
+    R0_2_old = R0_2				
+    tseed_2_old = tseed_2
+    pc_2_old = pc_2
+    beta_1Eo2_old = beta_1Eo2
+    beta_2E1o_old = beta_2E1o
+    pc_12_old = pc_12
+    inc_model_best = inc_model
+  }
+  
+  ## Every 100 iterations, print plots of data and model fit and of the optimised parameters; save the found values in a data frame
+  if (iter%%100==0){			
+    cat("Iteration",iter,"out of",niter,"\n")	# This is to print at what iteration number the process is 
+    mult.fig(1)	
+    plot(data$time,data$Co,type='h', col="grey",lwd=10, lend=3, xlab="Time (weeks)", ylab="New cases of co-infection per week")
+    lines(inc_model_best[,1],inc_model_best[,4],col=1,lwd=2, lty=1)		
+    par(new = T)
+    plot(data$time,data$IF, axes=F,pch = c(16), col="green4", xlab=NA, ylab=NA)		
+    points(data$time,data$RSV, pch = c(16), col=2)
+    lines(inc_model_best[,1],inc_model_best[,2],col="green4",lwd=2, lty=1)
+    lines(inc_model_best[,1],inc_model_best[,3],col=2,lwd=2, lty=1)	
+    axis(side = 4)
+    mtext(side = 4, line = 3, 'New cases of IF/RSV per week')
+    legend("topright",legend=c("Co-infection data","Influenza data","RSV data","Co-infection model fit","Influenza model fit","RSV model fit"),pch = c(NA_integer_,16,16,NA_integer_,NA_integer_,NA_integer_), col=c("grey","green4",2,1,"green4",2),lty=c(0,0,0,2,2,2),lwd=c(10,1,1,2,2,2),bty="n")
+  }
+} 		# end of overall loop 
+
+R0_1 = R0_1_old			
+tseed_1 = tseed_1_old
+pc_1 = pc_1_old
+R0_2 = R0_2_old				
+tseed_2 = tseed_2_old 
+pc_2 = pc_2_old
+beta_1Eo2 = beta_1Eo2_old
+beta_2E1o = beta_2E1o_old
+pc_12 = pc_12_old
+
+## Create plots for the optimised parameters 
+
+jpeg("IFModelFit.jpg", width=6, height=4, units="in", res=400)
+plot(data$time,data$IF, pch = c(16), xlab="Time (weeks)", ylim=c(0,4000), ylab="New influenza cases per week")		
+lines(inc_model_best[,1],inc_model_best[,2],col=2,lwd=4)								# Overlay the best model fit
+legend("topright",legend=c("Influenza data","Influenza model"),pch = c(16,NA_integer_), col=c(1,2),lty=c(0,1),lwd=c(1,4),bty="n")
+dev.off()
+
+lgood = (vpois_negloglike<(min(vpois_negloglike)+300)) 
+
+jpeg("IFModelR0.jpg", width=6, height=4, units="in", res=400)
+plot(vR0_1[lgood],vpois_negloglike[lgood],xlab="R0 for influenza",ylab="Poisson likelihood statistic")
+dev.off()
+
+jpeg("IFModelTseed.jpg", width=6, height=4, units="in", res=400)
+plot(vtseed_1[lgood],vpois_negloglike[lgood],xlab="Time of introduction of influenza",ylab="Poisson likelihood statistic")
+dev.off()
+
+jpeg("IFModelpc.jpg", width=6, height=4, units="in", res=400)
+plot(vpc_1[lgood],vpois_negloglike[lgood],xlab="pc for influenza data",ylab="Poisson likelihood statistic")
+dev.off()
+
+jpeg("IFModelR0_all.jpg", width=6, height=4, units="in", res=400)
+plot(vR0_1,  ylab="", main="R0 for IF", xlab="Iteration")
+dev.off()
+
+jpeg("IFModelR0_all_hist.jpg", width=6, height=4, units="in", res=400)
+hist(vR0_1, freq = F, main="R0 for IF")
+dev.off()
+
+jpeg("IFModelTseed_all.jpg", width=6, height=4, units="in", res=400)
+plot(vtseed_1,ylab="", xlab="Iteration", main="Time of introduction of IF")
+dev.off()
+
+jpeg("IFModelTseed_all_hist.jpg", width=6, height=4, units="in", res=400)
+hist(vtseed_1, freq = F, main="Time of introduction of IF")
+dev.off()
+
+jpeg("IFModelpc_all.jpg", width=6, height=4, units="in", res=400)
+plot(vpc_1,ylab="", main="pc for IF")
+dev.off()
+
+jpeg("IFModelpc_all_hist.jpg", width=6, height=4, units="in", res=400)
+hist(vpc_1, freq = F, main="pc for IF")
+dev.off()
+
+jpeg("RSVModelFit.jpg", width=6, height=4, units="in", res=400)
+plot(data$time,data$RSV, pch = c(16), xlab="Time (weeks)",ylim=c(0,600), ylab="New RSV cases per week")		
+lines(inc_model_best[,1],inc_model_best[,3],col=2,lwd=4)							
+legend("topright",legend=c("RSV data","RSV model"),pch = c(16,NA_integer_), col=c(1,2),lty=c(0,1),lwd=c(1,4),bty="n")
+dev.off()
+
+jpeg("RSVModelR0.jpg", width=6, height=4, units="in", res=400)
+plot(vR0_2[lgood],vpois_negloglike[lgood],xlab="R0 for RSV",ylab="Poisson likelihood statistic")
+dev.off()
+
+jpeg("RSVModelTseed.jpg", width=6, height=4, units="in", res=400)
+plot(vtseed_2[lgood],vpois_negloglike[lgood],xlab="Time of introduction of RSV",ylab="Poisson likelihood statistic")
+dev.off()
+
+jpeg("RSVModelpc.jpg", width=6, height=4, units="in", res=400)
+plot(vpc_2[lgood],vpois_negloglike[lgood],xlab="pc for RSV",ylab="Poisson likelihood statistic")
+dev.off()
+
+jpeg("RSVModelR0_all.jpg", width=6, height=4, units="in", res=400)
+plot(vR0_2,  ylab="", main="R0 for RSV", xlab="Iteration")
+dev.off()
+
+jpeg("RSVModelR0_all_hist.jpg", width=6, height=4, units="in", res=400)
+hist(vR0_2, freq = F, main="R0 for RSV")
+dev.off()
+
+jpeg("RSVModelTseed_all.jpg", width=6, height=4, units="in", res=400)
+plot(vtseed_2,ylab="", xlab="Iteration", main="Time of introduction of RSV")
+dev.off()
+
+jpeg("RSVModelTseed_all_hist.jpg", width=6, height=4, units="in", res=400)
+hist(vtseed_2, freq = F, main="Time of introduction of RSV")
+dev.off()
+
+jpeg("RSVModelpc_all.jpg", width=6, height=4, units="in", res=400)
+plot(vpc_2,ylab="", main="pc for RSV")
+dev.off()
+
+jpeg("RSVModelpc_all_hist.jpg", width=6, height=4, units="in", res=400)
+hist(vpc_2, freq = F, main="pc for RSV")
+dev.off()
+
+jpeg("CoInfectionModelFit.jpg", width=6, height=4, units="in", res=400)
+plot(data$time,data$Co, pch = c(16), xlab="Time (weeks)", ylim=c(0,100), ylab="New co-infection cases per week")		# Plot the actual data
+lines(inc_model_best[,1],inc_model_best[,4],col=2,lwd=4)									# Overlay the best model fit
+legend("topright",legend=c("Co-infection data","Co-infection model"),pch = c(16,NA_integer_), col=c(1,2),lty=c(0,1),lwd=c(1,4),bty="n")
+dev.off()
+
+jpeg("CoInfectionModelBeta_2E1o.jpg", width=6, height=4, units="in", res=400)
+plot(vbeta_2E1o[lgood],vpois_negloglike[lgood],xlab="Beta for infection with RSV after exposure to influenza",ylab="Poisson likelihood statistic")
+dev.off()
+
+jpeg("CoInfectionModelBeta_1Eo2.jpg", width=6, height=4, units="in", res=400)
+plot(vbeta_1Eo2[lgood],vpois_negloglike[lgood],xlab="Beta for infection with influenza after exposure to RSV",ylab="Poisson likelihood statistic")
+dev.off()
+
+jpeg("CoInfectionModelpc.jpg", width=6, height=4, units="in", res=400)
+plot(vpc_12[lgood],vpois_negloglike[lgood],xlab="pc for co-infection",ylab="Poisson likelihood statistic")
+dev.off()
+
+jpeg("CoInfectionModelBeta_2E1o_all.jpg", width=6, height=4, units="in", res=400)
+plot(vbeta_2E1o,  ylab="", xlab="Iteration", main="Beta RSV infection after IF infection")
+dev.off()
+
+jpeg("CoInfectionModelBeta_2E1o_all_hist.jpg", width=6, height=4, units="in", res=400)
+hist(vbeta_2E1o, freq = F, main="Beta RSV infection after IF infection")
+dev.off()
+
+jpeg("CoInfectionModelBeta_1Eo2_all.jpg", width=6, height=4, units="in", res=400)
+plot(vbeta_1Eo2,ylab="", xlab="Iteration", main="Beta IF infection after RSV infection")
+dev.off()
+
+jpeg("CoInfectionModelBeta_1Eo2_all_hist.jpg", width=6, height=4, units="in", res=400)
+hist(vbeta_1Eo2, freq = F, main="Beta IF infection after RSV infection")
+dev.off()
+
+jpeg("CoInfectionModelpc_all.jpg", width=6, height=4, units="in", res=400)
+plot(vpc_12,ylab="", main="pc for Co-infection")
+dev.off()
+
+jpeg("CoInfectionModelpc_all_hist.jpg", width=6, height=4, units="in", res=400)
+hist(vpc_12, freq = F, main="pc for Co-infection")
+dev.off()
+
+jpeg("AllDataAndModels.jpg", width=6, height=4, units="in", res=400)
+plot(data$time,data$Co,type='h',ylim=c(0,200), col="grey",lwd=10, lend=3, xlab="Time (weeks)", ylab="New cases of co-infection per week")
+lines(inc_model_best[,1],inc_model_best[,4],col=1,lwd=2, lty=2)		
+par(new = T)
+plot(data$time,data$IF, axes=F,pch = c(16), col="green4", xlab=NA, ylab=NA)		
+points(data$time,data$RSV, pch = c(16), col=2)
+lines(inc_model_best[,1],inc_model_best[,2],col="green4",lwd=2, lty=2)
+lines(inc_model_best[,1],inc_model_best[,3],col=2,lwd=2, lty=2)	
+axis(side = 4)
+mtext(side = 4, line = 3, 'New cases of IF/RSV per week')
+legend("topright",legend=c("Co-infection data","Influenza data","RSV data","Co-infection model","Influenza model","RSV model "),pch = c(NA_integer_,16,16,NA_integer_,NA_integer_,NA_integer_), col=c("grey","green4",2,1,"green4",2),lty=c(0,0,0,2,2,2),lwd=c(10,1,1,2,2,2),bty="n")
+dev.off()
+
+
+vdat = data.frame(R0_1=vR0_1,tseed_1=vtseed_1, pc_1=vpc_1, 
+                  R0_2=vR0_2, tseed_2=vtseed_2, pc_2=vpc_2, 
+                  beta_2E1o=vbeta_2E1o, beta_1Eo2=vbeta_1Eo2, pc_12=vpc_12,
+                  pois_negloglike=vpois_negloglike)
+write.csv(vdat,"MCMC_proposed_1.csv",row.names=F)
+
+## Calculate the effective sample size
+mcmc_object = data.frame(R0_1=vR0_1,tseed_1=vtseed_1, pc_1=vpc_1, R0_2=vR0_2, tseed_2=vtseed_2, pc_2=vpc_2,beta_2E1o=vbeta_2E1o, beta_1Eo2=vbeta_1Eo2, pc_12=vpc_1)
+mcmc_object <- as.mcmc(mcmc_object)
+effN <- as.matrix(effectiveSize(mcmc_object))
+write.csv(effN,"MCMC_effN_1.csv",row.names=T)
+
+## Save the results of the parameter optimisation in overall
+vresults = data.frame(R0_1=R0_1,tseed_1=tseed_1,pc_1=pc_1,R0_2=R0_2,tseed_2=tseed_2,pc_2=pc_2,beta_1Eo2=beta_1Eo2,beta_2E1o=beta_2E1o,pc_12=pc_12)
+write.csv(vresults,"MCMC_results.csv",row.names=F)
+
+write.csv(inc_model_best,"MCMC_model_data.csv",row.names=F)
